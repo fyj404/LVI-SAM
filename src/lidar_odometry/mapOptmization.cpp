@@ -80,6 +80,7 @@ public:
     pcl::PointCloud<PointTypePose>::Ptr cloudKeyPoses6D;
 
     pcl::PointCloud<PointType>::Ptr laserCloudCornerLast;   // corner feature set from odoOptimization
+    pcl::PointCloud<PointType>::Ptr laserCloudTotalLast;    // total point set 
     pcl::PointCloud<PointType>::Ptr laserCloudSurfLast;     // surf feature set from odoOptimization
     pcl::PointCloud<PointType>::Ptr laserCloudCornerLastDS; // downsampled corner featuer set from odoOptimization
     pcl::PointCloud<PointType>::Ptr laserCloudSurfLastDS;   // downsampled surf featuer set from odoOptimization
@@ -225,6 +226,7 @@ public:
         cloudInfo = *msgIn;
         pcl::fromROSMsg(msgIn->cloud_corner, *laserCloudCornerLast);
         pcl::fromROSMsg(msgIn->cloud_surface, *laserCloudSurfLast);
+        //pcl::fromROSMsg(msgIn->cloud_deskewed,*laserCloudTotalLast);
 
         std::lock_guard<std::mutex> lock(mtx);
 

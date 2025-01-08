@@ -33,6 +33,7 @@ find_package(catkin REQUIRED COMPONENTS
     pcl_conversions
     # msg generation
     message_generation
+    octomap_ros
 )
 
 find_package(OpenMP REQUIRED)
@@ -74,12 +75,14 @@ include_directories(
     ${CERES_INCLUDE_DIRS}
     ${Boost_INCLUDE_DIRS}
     ${GTSAM_INCLUDE_DIR}
+    ${OCTOMAP_INCLUDE_DIR}
 )
 
 link_directories(
     ${PCL_LIBRARY_DIRS}
     ${OpenCV_LIBRARY_DIRS}
     ${GTSAM_LIBRARY_DIRS}
+    ${OCTOMAP_LIBRARY_DIR}
 )
 
 ######################
@@ -134,3 +137,9 @@ add_executable(${PROJECT_NAME}_mapOptmization src/lidar_odometry/mapOptmization.
 add_dependencies(${PROJECT_NAME}_mapOptmization ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
 target_compile_options(${PROJECT_NAME}_mapOptmization PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(${PROJECT_NAME}_mapOptmization PRIVATE ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} ${OpenMP_CXX_FLAGS} gtsam Boost::timer)
+
+
+# Feature Association
+add_executable(${PROJECT_NAME}_mapRegister src/lidar_odometry/mapRegister.cpp)
+add_dependencies(${PROJECT_NAME}_mapRegister ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
+target_link_libraries(${PROJECT_NAME}_mapRegister ${catkin_LIBRARIES} ${PCL_LIBRARIES})

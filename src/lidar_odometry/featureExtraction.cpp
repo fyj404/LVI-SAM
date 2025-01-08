@@ -253,6 +253,14 @@ public:
     {
         // free cloud info memory
         freeCloudInfoMemory();
+        
+        //save all point cloud
+        sensor_msgs::PointCloud2 tempCloud;
+        pcl::toROSMsg(*extractedCloud, tempCloud);
+        tempCloud.header.stamp = cloudHeader.stamp;
+        tempCloud.header.frame_id = "base_link";
+        cloudInfo.cloud_deskewed= tempCloud;
+
         // save newly extracted features
         cloudInfo.cloud_corner  = publishCloud(&pubCornerPoints,  cornerCloud,  cloudHeader.stamp, "base_link");
         cloudInfo.cloud_surface = publishCloud(&pubSurfacePoints, surfaceCloud, cloudHeader.stamp, "base_link");

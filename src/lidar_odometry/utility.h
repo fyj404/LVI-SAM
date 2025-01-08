@@ -156,6 +156,7 @@ public:
 
     ParamServer()
     {
+        ROS_INFO("begin build ParamServer\n");
         nh.param<std::string>("/PROJECT_NAME", PROJECT_NAME, "sam");
 
         nh.param<std::string>("/robot_id", robot_id, "roboat");
@@ -282,6 +283,7 @@ public:
         nh.param<float>(PROJECT_NAME + "/globalMapVisualizationLeafSize", globalMapVisualizationLeafSize, 1.0);
 
         usleep(100);
+        ROS_INFO("build ParamServer finish\n");
     }
 
     sensor_msgs::Imu imuConverter(const sensor_msgs::Imu& imu_in)
