@@ -153,7 +153,14 @@ public:
         pubPath = nh.advertise<nav_msgs::Path>(PROJECT_NAME + "/lidar/mapping/path", 1);
 
         subLaserCloudInfo = nh.subscribe<lvi_sam::cloud_info>(PROJECT_NAME + "/lidar/feature/cloud_info", 5, &mapOptimization::laserCloudInfoHandler, this, ros::TransportHints().tcpNoDelay());
-        subGPS = nh.subscribe<nav_msgs::Odometry>(gpsTopic, 50, &mapOptimization::gpsHandler, this, ros::TransportHints().tcpNoDelay());
+        if(gps_mode==GPSMODE::SENSOR_NAV)
+        {
+            subGPS = nh.subscribe<sensor_msgs::NavSatFix>(gpsTopic, 50, &mapOptimization::gpsSensorHandler, this, ros::TransportHints().tcpNoDelay());
+        }
+        else{
+            subGPS = nh.subscribe<nav_msgs::Odometry>(gpsTopic, 50, &mapOptimization::gpsHandler, this, ros::TransportHints().tcpNoDelay());
+        }
+        
         subLoopInfo = nh.subscribe<std_msgs::Float64MultiArray>(PROJECT_NAME + "/vins/loop/match_frame", 5, &mapOptimization::loopHandler, this, ros::TransportHints().tcpNoDelay());
 
         pubHistoryKeyFrames = nh.advertise<sensor_msgs::PointCloud2>(PROJECT_NAME + "/lidar/mapping/loop_closure_history_cloud", 1);
@@ -261,6 +268,12 @@ public:
     {
         std::lock_guard<std::mutex> lock(mtx);
         gpsQueue.push_back(*gpsMsg);
+    }
+    void gpsSensorHandler(const sensor_msgs::NavSatFix::ConstPtr &gpsMsg)
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        nav_msgs::Odometry odometry_msg;
+        //gpsQueue.push_back(*gpsMsg);
     }
 
     void pointAssociateToMap(PointType const *const pi, PointType *const po)

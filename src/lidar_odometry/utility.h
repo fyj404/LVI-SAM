@@ -13,7 +13,6 @@
 #include <nav_msgs/Path.h>
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
-
 #include <opencv/cv.h>
 
 #include <pcl/point_cloud.h>
@@ -58,7 +57,10 @@
 using namespace std;
 
 typedef pcl::PointXYZI PointType;
-
+enum GPSMODE{
+    SENSOR_NAV=0,
+    ODOMETRY=1
+};
 
 class ParamServer
 {
@@ -154,6 +156,8 @@ public:
     float globalMapVisualizationPoseDensity;
     float globalMapVisualizationLeafSize;
 
+    GPSMODE gps_mode;
+    
     ParamServer()
     {
         ROS_INFO("begin build ParamServer\n");
@@ -165,6 +169,15 @@ public:
         nh.param<std::string>(PROJECT_NAME + "/imuTopic", imuTopic, "imu_correct");
         nh.param<std::string>(PROJECT_NAME + "/odomTopic", odomTopic, "odometry/imu");
         nh.param<std::string>(PROJECT_NAME + "/gpsTopic", gpsTopic, "odometry/gps");
+        int mode;
+        nh.param<int>(PROJECT_NAME+"/gpsMode",mode,0);
+        if(mode==0){
+            gps_mode=GPSMODE::SENSOR_NAV;
+        }
+        else{
+            gps_mode=GPSMODE::ODOMETRY;
+        }
+        
 
         nh.param<bool>(PROJECT_NAME + "/useImuHeadingInitialization", useImuHeadingInitialization, false);
         nh.param<bool>(PROJECT_NAME + "/useGpsElevation", useGpsElevation, false);
