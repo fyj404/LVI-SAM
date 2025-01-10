@@ -64,6 +64,7 @@ public:
     ros::Publisher pubRecentKeyFrames;
     ros::Publisher pubRecentKeyFrame;
     ros::Publisher pubCloudRegisteredRaw;
+    ros::Publisher pubCloudAndPoseRegistered;
     ros::Publisher pubLoopConstraintEdge;
 
     ros::Subscriber subLaserCloudInfo;
@@ -162,6 +163,8 @@ public:
         pubRecentKeyFrames = nh.advertise<sensor_msgs::PointCloud2>(PROJECT_NAME + "/lidar/mapping/map_local", 1);
         pubRecentKeyFrame = nh.advertise<sensor_msgs::PointCloud2>(PROJECT_NAME + "/lidar/mapping/cloud_registered", 1);
         pubCloudRegisteredRaw = nh.advertise<sensor_msgs::PointCloud2>(PROJECT_NAME + "/lidar/mapping/cloud_registered_raw", 1);
+        pubCloudAndPoseRegistered = nh.advertise<lvi_sam::cloud_info>(PROJECT_NAME + "/lidar/mapping/cloud_pose_registered", 1);
+
 
         downSizeFilterCorner.setLeafSize(mappingCornerLeafSize, mappingCornerLeafSize, mappingCornerLeafSize);
         downSizeFilterSurf.setLeafSize(mappingSurfLeafSize, mappingSurfLeafSize, mappingSurfLeafSize);
@@ -1641,6 +1644,23 @@ public:
             PointTypePose thisPose6D = trans2PointTypePose(transformTobeMapped);
             *cloudOut = *transformPointCloud(cloudOut, &thisPose6D);
             publishCloud(&pubCloudRegisteredRaw, cloudOut, timeLaserInfoStamp, "odom");
+        }
+        if(pubCloudAndPoseRegistered.getNumSubscribers() != 0)
+        {
+            PointTypePose thisPose6D = trans2PointTypePose(transformTobeMapped);
+           
+            pcl::PointCloud<PointType>::Ptr cloud_input(new pcl::PointCloud<PointType>()),cloud_output(new pcl::PointCloud<PointType>());
+            pcl::fromROSMsg(cloudInfo.cloud_deskewed, *cloud_input);
+            *cloud_output += *transformPointCloud(cloud_input, &thisPose6D);
+
+            lvi_sam::cloud_info msg;
+            msg.header= cloudInfo.header;
+            msg.header.frame_id="odom";
+            msg.odomX=transformTobeMapped[3];
+            msg.odomY=transformTobeMapped[4];
+            msg.odomZ=transformTobeMapped[5];
+            pcl::toROSMsg(*cloud_output, msg.cloud_deskewed);
+            pubCloudAndPoseRegistered.publish(msg);
         }
         // publish path
         if (pubPath.getNumSubscribers() != 0)

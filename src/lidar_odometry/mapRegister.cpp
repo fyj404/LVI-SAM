@@ -121,8 +121,8 @@ public:
         octree_ = std::make_shared<octomap::OcTree>(resolution);
         grid_map_ = std::make_shared<HashGridMap>(resolution);
         // 订阅点云话题
-        ROS_INFO("%s/lidar/feature/cloud_info",PROJECT_NAME.c_str());
-        pointcloud_sub_ = nh.subscribe(PROJECT_NAME + "/lidar/feature/cloud_info", 5, &MapRegister::pointCloudCallback, this,
+        ROS_INFO("%s/lidar/feature/cloud_info", PROJECT_NAME.c_str());
+        pointcloud_sub_ = nh.subscribe(PROJECT_NAME + "/lidar/mapping/cloud_pose_registered", 5, &MapRegister::pointCloudCallback, this,
                                        ros::TransportHints().tcpNoDelay());
         octomap_pub_ = nh.advertise<octomap_msgs::Octomap>("octomap", 1);
         ROS_INFO("build MapRegister finish\n");
@@ -132,13 +132,13 @@ private:
     void pointCloudCallback(const lvi_sam::cloud_infoConstPtr &msgIn)
     {
         auto start_time = ros::Time::now();
-        static int cloud_callback_count=0;
-        cloud_callback_count+=1;
+        static int cloud_callback_count = 0;
+        cloud_callback_count += 1;
         // 将 PointCloud2 转换为 PCL 点云
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
         pcl::fromROSMsg(msgIn->cloud_deskewed, *cloud);
-        ROS_INFO("pointCloudCallback %d %d\n",cloud_callback_count,cloud->size());
-        const octomap::point3d start_point(msgIn->odomX,msgIn->odomY, msgIn->odomZ);
+        ROS_INFO("pointCloudCallback %d %d\n", cloud_callback_count, cloud->size());
+        const octomap::point3d start_point(msgIn->odomX, msgIn->odomY, msgIn->odomZ);
         const uint8_t color_red = 125;
         const uint8_t color_green = 125;
         const uint8_t color_blue = 125;
@@ -148,40 +148,47 @@ private:
         // 遍历点云构造八叉树和栅格地图
         for (const auto &point : cloud->points)
         {
-            bool find_flag=grid_map_->getGridCell(point.x, point.y, point.z);
-            if(find_flag){
+            const octomap::point3d end_point(point.x, point.y, point.z);
+            bool find_flag = grid_map_->getGridCell(point.x, point.y, point.z);
+            if (find_flag)
+            {
+                continue;
+            }
+            if ((end_point - start_point).norm() > 100)
+            {
                 continue;
             }
             // 添加点到八叉树
-            const octomap::point3d end_point(point.x, point.y, point.z);
             auto node = octree_->updateNode(end_point, true);
             if (node->getOccupancy() > 0.85)
             {
                 // 构造哈希栅格地图
                 grid_map_->updateGridCell(point.x, point.y, point.z, true, color_red,
                                           color_green, color_blue, intensity, label, label_confidence);
+                octomap::KeyRay key_ray; // 用于存储射线路径的 Key
+                if (octree_->computeRayKeys(start_point, end_point, key_ray))
+                {
+                    // 遍历射线上的所有体素并设置为未占用
+                    for (const auto &key : key_ray)
+                    {
+                        octree_->updateNode(key, false); // 标记为未占用
+                    }
+                }
             }
-
-            octomap::KeyRay key_ray; // 用于存储射线路径的 Key
-            // if (octree_->computeRayKeys(start_point, end_point, key_ray))
-            // {
-            //     // 遍历射线上的所有体素并设置为未占用
-            //     for (const auto &key : key_ray)
-            //     {
-            //         octree_->updateNode(key, false); // 标记为未占用
-            //     }
-            // }
         }
 
-        // 可选：压缩八叉树以节省存储
-        octree_->updateInnerOccupancy();
-
-        if(cloud_callback_count%1==0){
+        octree_->updateInnerOccupancy(); // 可选：压缩八叉树以节省存储
+        octree_->prune();                // 合并空节点，减小树规模
+        if (cloud_callback_count % 1 == 0)
+        {
             octomap_msgs::Octomap map_msg;
             map_msg.header = msgIn->header;
-            if (octomap_msgs::fullMapToMsg(*octree_, map_msg)) {
+            if (octomap_msgs::fullMapToMsg(*octree_, map_msg))
+            {
                 octomap_pub_.publish(map_msg); // 发布消息
-            } else {
+            }
+            else
+            {
                 ROS_ERROR("Failed to convert OctoMap to message.");
             }
         }
@@ -189,9 +196,9 @@ private:
 
         // 计算时间差（单位：毫秒）
         ros::Duration elapsed_time = end_time - start_time;
-        ROS_INFO("count Elapsed time: %f ms octree size :%d",elapsed_time.toSec()*1000,octree_->size());
+        ROS_INFO("count Elapsed time: %f ms octree size :%d", elapsed_time.toSec() * 1000, octree_->size());
         // 输出八叉树和栅格地图信息
-        //ROS_INFO("Octree size: %zu, Grid map size: %zu", octree_->size(), grid_map_->size());
+        // ROS_INFO("Octree size: %zu, Grid map size: %zu", octree_->size(), grid_map_->size());
     }
     std::shared_ptr<HashGridMap> grid_map_;
     std::shared_ptr<octomap::OcTree> octree_;
