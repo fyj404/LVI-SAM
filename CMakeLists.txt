@@ -11,7 +11,7 @@ add_definitions(-DIF_OFFICIAL=0)
 ### Cmake flags
 ######################
 set(CMAKE_BUILD_TYPE "Release")
-set(CMAKE_CXX_FLAGS "-std=c++11")
+set(CMAKE_CXX_FLAGS "-std=c++14")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g -pthread")
 
 ######################
@@ -43,6 +43,8 @@ find_package(Ceres REQUIRED)
 find_package(GTSAM REQUIRED QUIET)
 find_package(Boost REQUIRED COMPONENTS filesystem program_options system timer)
 
+set(CMAKE_PREFIX_PATH /usr/local/lib/cmake/proj/ ${CMAKE_PREFIX_PATH})
+find_package(PROJ REQUIRED)
 
 ######################
 ### Message generation
@@ -76,6 +78,7 @@ include_directories(
     ${Boost_INCLUDE_DIRS}
     ${GTSAM_INCLUDE_DIR}
     ${OCTOMAP_INCLUDE_DIR}
+    ${PROJ_INCLUDE_DIRS}
 )
 
 link_directories(
@@ -84,7 +87,8 @@ link_directories(
     ${GTSAM_LIBRARY_DIRS}
     ${OCTOMAP_LIBRARY_DIR}
 )
-
+message(STATUS "Proj Include Dirs: ${PROJ_INCLUDE_DIRS}")
+message(STATUS "Proj Libraries: ${PROJ_LIBRARIES}")
 ######################
 ### visual odometry
 ######################
@@ -135,8 +139,10 @@ target_link_libraries(${PROJECT_NAME}_featureExtraction ${catkin_LIBRARIES} ${PC
 # Mapping Optimization
 add_executable(${PROJECT_NAME}_mapOptmization src/lidar_odometry/mapOptmization.cpp)
 add_dependencies(${PROJECT_NAME}_mapOptmization ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
+target_include_directories(${PROJECT_NAME}_mapOptmization PRIVATE ${PROJ_INCLUDE_DIRS})
 target_compile_options(${PROJECT_NAME}_mapOptmization PRIVATE ${OpenMP_CXX_FLAGS})
-target_link_libraries(${PROJECT_NAME}_mapOptmization PRIVATE ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} ${OpenMP_CXX_FLAGS} gtsam Boost::timer)
+target_link_libraries(${PROJECT_NAME}_mapOptmization PRIVATE ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} 
+${OpenMP_CXX_FLAGS} gtsam Boost::timer  ${PROJ_LIBRARIES})
 
 
 # Feature Association

@@ -16,6 +16,8 @@
 
 #include <gtsam/nonlinear/ISAM2.h>
 
+#include <proj.h>
+
 using namespace gtsam;
 
 using symbol_shorthand::B; // Bias  (ax,ay,az,gx,gy,gz)
@@ -24,8 +26,8 @@ using symbol_shorthand::V; // Vel   (xdot,ydot,zdot)
 using symbol_shorthand::X; // Pose3 (x,y,z,r,p,y)
 
 /*
-    * A point cloud type that has 6D pose info ([x,y,z,roll,pitch,yaw] intensity is time stamp)
-    */
+ * A point cloud type that has 6D pose info ([x,y,z,roll,pitch,yaw] intensity is time stamp)
+ */
 struct PointXYZIRPYT
 {
     PCL_ADD_POINT4D
@@ -81,7 +83,7 @@ public:
     pcl::PointCloud<PointTypePose>::Ptr cloudKeyPoses6D;
 
     pcl::PointCloud<PointType>::Ptr laserCloudCornerLast;   // corner feature set from odoOptimization
-    pcl::PointCloud<PointType>::Ptr laserCloudTotalLast;    // total point set 
+    pcl::PointCloud<PointType>::Ptr laserCloudTotalLast;    // total point set
     pcl::PointCloud<PointType>::Ptr laserCloudSurfLast;     // surf feature set from odoOptimization
     pcl::PointCloud<PointType>::Ptr laserCloudCornerLastDS; // downsampled corner featuer set from odoOptimization
     pcl::PointCloud<PointType>::Ptr laserCloudSurfLastDS;   // downsampled surf featuer set from odoOptimization
@@ -153,14 +155,15 @@ public:
         pubPath = nh.advertise<nav_msgs::Path>(PROJECT_NAME + "/lidar/mapping/path", 1);
 
         subLaserCloudInfo = nh.subscribe<lvi_sam::cloud_info>(PROJECT_NAME + "/lidar/feature/cloud_info", 5, &mapOptimization::laserCloudInfoHandler, this, ros::TransportHints().tcpNoDelay());
-        if(gps_mode==GPSMODE::SENSOR_NAV)
+        if (gps_mode == GPSMODE::SENSOR_NAV)
         {
             subGPS = nh.subscribe<sensor_msgs::NavSatFix>(gpsTopic, 50, &mapOptimization::gpsSensorHandler, this, ros::TransportHints().tcpNoDelay());
         }
-        else{
+        else
+        {
             subGPS = nh.subscribe<nav_msgs::Odometry>(gpsTopic, 50, &mapOptimization::gpsHandler, this, ros::TransportHints().tcpNoDelay());
         }
-        
+
         subLoopInfo = nh.subscribe<std_msgs::Float64MultiArray>(PROJECT_NAME + "/vins/loop/match_frame", 5, &mapOptimization::loopHandler, this, ros::TransportHints().tcpNoDelay());
 
         pubHistoryKeyFrames = nh.advertise<sensor_msgs::PointCloud2>(PROJECT_NAME + "/lidar/mapping/loop_closure_history_cloud", 1);
@@ -171,7 +174,6 @@ public:
         pubRecentKeyFrame = nh.advertise<sensor_msgs::PointCloud2>(PROJECT_NAME + "/lidar/mapping/cloud_registered", 1);
         pubCloudRegisteredRaw = nh.advertise<sensor_msgs::PointCloud2>(PROJECT_NAME + "/lidar/mapping/cloud_registered_raw", 1);
         pubCloudAndPoseRegistered = nh.advertise<lvi_sam::cloud_info>(PROJECT_NAME + "/lidar/mapping/cloud_pose_registered", 1);
-
 
         downSizeFilterCorner.setLeafSize(mappingCornerLeafSize, mappingCornerLeafSize, mappingCornerLeafSize);
         downSizeFilterSurf.setLeafSize(mappingSurfLeafSize, mappingSurfLeafSize, mappingSurfLeafSize);
@@ -236,7 +238,7 @@ public:
         cloudInfo = *msgIn;
         pcl::fromROSMsg(msgIn->cloud_corner, *laserCloudCornerLast);
         pcl::fromROSMsg(msgIn->cloud_surface, *laserCloudSurfLast);
-        //pcl::fromROSMsg(msgIn->cloud_deskewed,*laserCloudTotalLast);
+        // pcl::fromROSMsg(msgIn->cloud_deskewed,*laserCloudTotalLast);
 
         std::lock_guard<std::mutex> lock(mtx);
 
@@ -269,11 +271,94 @@ public:
         std::lock_guard<std::mutex> lock(mtx);
         gpsQueue.push_back(*gpsMsg);
     }
+
+    // WGS84 to UTM conversion function
+    bool WGS84ToUTM(double latitude, double longitude, double &utmX, double &utmY)
+    {
+        int zone;
+        // Determine UTM zone from longitude
+        zone = static_cast<int>(std::floor((longitude + 180) / 6)) + 1;
+
+        // Set the UTM zone with appropriate hemisphere
+        char utmZone[20];
+        snprintf(utmZone, sizeof(utmZone), "+proj=utm +zone=%d +datum=WGS84 +units=m +ellps=WGS84", zone);
+
+        // Create Proj contexts
+        PJ_CONTEXT *context = proj_context_create();
+        PJ *projection = proj_create_crs_to_crs(context, "+proj=longlat +datum=WGS84 +no_defs", utmZone, nullptr);
+        if (!projection)
+        {
+            std::cerr << "Failed to create projection" << std::endl;
+            proj_context_destroy(context);
+            return false;
+        }
+
+        // Prepare coordinates (longitude, latitude) -> (easting, northing)
+        PJ_COORD coord = proj_coord(longitude, latitude, 0, 0);
+        PJ_COORD result = proj_trans(projection, PJ_FWD, coord);
+
+        // Extract UTM coordinates
+        utmX = result.xy.x;
+        utmY = result.xy.y;
+
+        // Cleanup
+        proj_destroy(projection);
+        proj_context_destroy(context);
+
+        return true;
+    }
     void gpsSensorHandler(const sensor_msgs::NavSatFix::ConstPtr &gpsMsg)
     {
+        if (gpsMsg->status.status == -1)
+        {
+            ROS_WARN("Lost Gps!!!");
+            return;
+        }
         std::lock_guard<std::mutex> lock(mtx);
+        // gpsQueue.push_back(*gpsMsg);
+        double x, y;
+        WGS84ToUTM(gpsMsg->latitude, gpsMsg->longitude, x, y);
+        static std::unique_ptr<Eigen::Vector3d> gps_origin_;
+        static Eigen::Vector3d prev_pos_ = Eigen::Vector3d::Zero();
+
+        Eigen::Vector3d pose(x, y, 0.0);
+
+        if (!gps_origin_)
+        {
+            gps_origin_ = std::make_unique<Eigen::Vector3d>(pose);
+            std::cout << "Initialized gps_origin_: (" 
+                  << gps_origin_->x() << ", " 
+                  << gps_origin_->y() << ", " 
+                  << gps_origin_->z() << ")" << std::endl;
+        }
+        pose -= *gps_origin_;
+
+        double distance = sqrt(pow(pose(1) - prev_pos_(1), 2) +
+                               pow(pose(0) - prev_pos_(0), 2));
+        geometry_msgs::Quaternion q;
+        if (distance > 0.2)
+        {
+            double yaw = atan2(pose(1) - prev_pos_(1),
+                               pose(0) - prev_pos_(0)); // 返回值是此点与远点连线与x轴正方向的夹角
+            q = tf::createQuaternionMsgFromYaw(yaw);
+        }
+        else
+        {
+            q = tf::createQuaternionMsgFromYaw(NAN);
+        }
+        prev_pos_ = pose;
+
         nav_msgs::Odometry odometry_msg;
-        //gpsQueue.push_back(*gpsMsg);
+        odometry_msg.header = gpsMsg->header;
+        odometry_msg.pose.pose.position.x = pose(0);
+        odometry_msg.pose.pose.position.y = pose(1);
+        odometry_msg.pose.pose.position.z = pose(2);
+
+        odometry_msg.pose.pose.orientation.x = q.x;
+        odometry_msg.pose.pose.orientation.y = q.y;
+        odometry_msg.pose.pose.orientation.z = q.z;
+        odometry_msg.pose.pose.orientation.w = q.w;
+        gpsQueue.push_back(odometry_msg);
     }
 
     void pointAssociateToMap(PointType const *const pi, PointType *const po)
@@ -1507,7 +1592,7 @@ public:
         gtSAMgraph.resize(0);
         initialEstimate.clear();
 
-        //save key poses
+        // save key poses
         PointType thisPose3D;
         PointTypePose thisPose6D;
         Pose3 latestEstimate;
@@ -1658,20 +1743,20 @@ public:
             *cloudOut = *transformPointCloud(cloudOut, &thisPose6D);
             publishCloud(&pubCloudRegisteredRaw, cloudOut, timeLaserInfoStamp, "odom");
         }
-        if(pubCloudAndPoseRegistered.getNumSubscribers() != 0)
+        if (pubCloudAndPoseRegistered.getNumSubscribers() != 0)
         {
             PointTypePose thisPose6D = trans2PointTypePose(transformTobeMapped);
-           
-            pcl::PointCloud<PointType>::Ptr cloud_input(new pcl::PointCloud<PointType>()),cloud_output(new pcl::PointCloud<PointType>());
+
+            pcl::PointCloud<PointType>::Ptr cloud_input(new pcl::PointCloud<PointType>()), cloud_output(new pcl::PointCloud<PointType>());
             pcl::fromROSMsg(cloudInfo.cloud_deskewed, *cloud_input);
             *cloud_output += *transformPointCloud(cloud_input, &thisPose6D);
 
             lvi_sam::cloud_info msg;
-            msg.header= cloudInfo.header;
-            msg.header.frame_id="odom";
-            msg.odomX=transformTobeMapped[3];
-            msg.odomY=transformTobeMapped[4];
-            msg.odomZ=transformTobeMapped[5];
+            msg.header = cloudInfo.header;
+            msg.header.frame_id = "odom";
+            msg.odomX = transformTobeMapped[3];
+            msg.odomY = transformTobeMapped[4];
+            msg.odomZ = transformTobeMapped[5];
             pcl::toROSMsg(*cloud_output, msg.cloud_deskewed);
             pubCloudAndPoseRegistered.publish(msg);
         }
