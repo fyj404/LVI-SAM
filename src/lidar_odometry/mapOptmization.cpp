@@ -331,7 +331,14 @@ public:
                   << gps_origin_->y() << ", " 
                   << gps_origin_->z() << ")" << std::endl;
         }
-        pose -= *gps_origin_;
+        else{
+            pose -= *gps_origin_;
+            std::cout << "now gps_pose_: (" 
+                  << pose.x() << ", " 
+                  << pose.y() << ", " 
+                  << pose.z() << ")" << std::endl;
+        }
+        
 
         double distance = sqrt(pow(pose(1) - prev_pos_(1), 2) +
                                pow(pose(0) - prev_pos_(0), 2));
@@ -358,6 +365,10 @@ public:
         odometry_msg.pose.pose.orientation.y = q.y;
         odometry_msg.pose.pose.orientation.z = q.z;
         odometry_msg.pose.pose.orientation.w = q.w;
+
+        odometry_msg.pose.covariance[0]=0.1;
+        odometry_msg.pose.covariance[7]=0.1;
+        odometry_msg.pose.covariance[14]=0.1;
         gpsQueue.push_back(odometry_msg);
     }
 
@@ -1485,12 +1496,12 @@ public:
             return;
 
         // pose covariance small, no need to correct
-        if (poseCovariance(3, 3) < poseCovThreshold && poseCovariance(4, 4) < poseCovThreshold)
-            return;
+        //if (poseCovariance(3, 3) < poseCovThreshold && poseCovariance(4, 4) < poseCovThreshold)
+        //    return;
 
         // last gps position
         static PointType lastGPSPoint;
-
+        static int gps_factor_count=0;
         while (!gpsQueue.empty())
         {
             if (gpsQueue.front().header.stamp.toSec() < timeLaserInfoCur - 0.2)
@@ -1518,7 +1529,7 @@ public:
                 float gps_x = thisGPS.pose.pose.position.x;
                 float gps_y = thisGPS.pose.pose.position.y;
                 float gps_z = thisGPS.pose.pose.position.z;
-                if (!useGpsElevation)
+                //if (!useGpsElevation)
                 {
                     gps_z = transformTobeMapped[5];
                     noise_z = 0.01;
@@ -1533,7 +1544,7 @@ public:
                 curGPSPoint.x = gps_x;
                 curGPSPoint.y = gps_y;
                 curGPSPoint.z = gps_z;
-                if (pointDistance(curGPSPoint, lastGPSPoint) < 5.0)
+                if (pointDistance(curGPSPoint, lastGPSPoint) < 2.0)
                     continue;
                 else
                     lastGPSPoint = curGPSPoint;
@@ -1545,7 +1556,8 @@ public:
                 gtSAMgraph.add(gps_factor);
 
                 aLoopIsClosed = true;
-
+                gps_factor_count+=1;
+                ROS_INFO("gps_factor_count = %d",gps_factor_count);
                 break;
             }
         }
@@ -1580,7 +1592,7 @@ public:
         addOdomFactor();
 
         // gps factor
-        // addGPSFactor();
+        addGPSFactor();
 
         // loop factor
         addLoopFactor();

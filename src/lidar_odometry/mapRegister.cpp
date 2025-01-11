@@ -137,7 +137,7 @@ private:
         // 将 PointCloud2 转换为 PCL 点云
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
         pcl::fromROSMsg(msgIn->cloud_deskewed, *cloud);
-        ROS_INFO("pointCloudCallback %d %d\n", cloud_callback_count, cloud->size());
+        //ROS_INFO("pointCloudCallback %d %d\n", cloud_callback_count, cloud->size());
         const octomap::point3d start_point(msgIn->odomX, msgIn->odomY, msgIn->odomZ);
         const uint8_t color_red = 125;
         const uint8_t color_green = 125;
@@ -196,7 +196,7 @@ private:
 
         // 计算时间差（单位：毫秒）
         ros::Duration elapsed_time = end_time - start_time;
-        ROS_INFO("count Elapsed time: %f ms octree size :%d", elapsed_time.toSec() * 1000, octree_->size());
+        //ROS_INFO("count Elapsed time: %f ms octree size :%d", elapsed_time.toSec() * 1000, octree_->size());
         // 输出八叉树和栅格地图信息
         // ROS_INFO("Octree size: %zu, Grid map size: %zu", octree_->size(), grid_map_->size());
     }

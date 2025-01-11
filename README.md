@@ -1,6 +1,6 @@
 # Update
 需要额外安装octomap库以及rviz对应的octomap插件
-需要安装
+需要安装Proj库，需要源码安装，apt-get可能会找不到库
 
 # LVI-SAM-Easyused（[中文README](./README_CN.md)）
 

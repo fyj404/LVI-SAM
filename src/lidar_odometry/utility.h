@@ -182,7 +182,7 @@ public:
         nh.param<bool>(PROJECT_NAME + "/useImuHeadingInitialization", useImuHeadingInitialization, false);
         nh.param<bool>(PROJECT_NAME + "/useGpsElevation", useGpsElevation, false);
         nh.param<float>(PROJECT_NAME + "/gpsCovThreshold", gpsCovThreshold, 2.0);
-        nh.param<float>(PROJECT_NAME + "/poseCovThreshold", poseCovThreshold, 25.0);
+        nh.param<float>(PROJECT_NAME + "/poseCovThreshold", poseCovThreshold, 1.0);
 
         nh.param<bool>(PROJECT_NAME + "/savePCD", savePCD, false);
         nh.param<std::string>(PROJECT_NAME + "/savePCDDirectory", savePCDDirectory, "/tmp/loam/");
