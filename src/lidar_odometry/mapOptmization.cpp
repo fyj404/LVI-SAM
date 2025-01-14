@@ -78,7 +78,7 @@ public:
 
     vector<pcl::PointCloud<PointType>::Ptr> cornerCloudKeyFrames;
     vector<pcl::PointCloud<PointType>::Ptr> surfCloudKeyFrames;
-
+    vector<double> cloudKeyPosesTime;
     pcl::PointCloud<PointType>::Ptr cloudKeyPoses3D;
     pcl::PointCloud<PointTypePose>::Ptr cloudKeyPoses6D;
 
@@ -309,36 +309,54 @@ public:
     }
     void gpsSensorHandler(const sensor_msgs::NavSatFix::ConstPtr &gpsMsg)
     {
+        static bool init_ENU=false;
         if (gpsMsg->status.status == -1)
         {
             ROS_WARN("Lost Gps!!!");
             return;
         }
+        std::cout << "gps status: " << gpsMsg->status.status << std::endl;
+        if (std::isnan(gpsMsg->latitude + gpsMsg->longitude + gpsMsg->altitude)) {
+            return;
+        }
+        Eigen::Vector3d lla(gpsMsg->latitude, gpsMsg->longitude, gpsMsg->altitude);
+        if(!init_ENU){
+            ROS_INFO("Init Orgin GPS LLA  %f, %f, %f", msg->latitude, msg->longitude,
+                     msg->altitude);
+            //geo_converter.Reset(lla[0], lla[1], lla[2]);
+            init_ENU = true;
+        }
+        
         std::lock_guard<std::mutex> lock(mtx);
         // gpsQueue.push_back(*gpsMsg);
         double x, y;
         WGS84ToUTM(gpsMsg->latitude, gpsMsg->longitude, x, y);
         static std::unique_ptr<Eigen::Vector3d> gps_origin_;
         static Eigen::Vector3d prev_pos_ = Eigen::Vector3d::Zero();
+        static double prev_time_ = 0;
 
         Eigen::Vector3d pose(x, y, 0.0);
 
         if (!gps_origin_)
         {
             gps_origin_ = std::make_unique<Eigen::Vector3d>(pose);
-            std::cout << "Initialized gps_origin_: (" 
-                  << gps_origin_->x() << ", " 
-                  << gps_origin_->y() << ", " 
-                  << gps_origin_->z() << ")" << std::endl;
-        }
-        else{
+            prev_time_ = gpsMsg->header.stamp.toSec();
+            std::cout << "Initialized gps_origin_: ("
+                      << gps_origin_->x() << ", "
+                      << gps_origin_->y() << ", "
+                      << gps_origin_->z() << ")" << std::endl;
             pose -= *gps_origin_;
-            std::cout << "now gps_pose_: (" 
-                  << pose.x() << ", " 
-                  << pose.y() << ", " 
-                  << pose.z() << ")" << std::endl;
+
+            return;
         }
-        
+        else
+        {
+            pose -= *gps_origin_;
+            std::cout << "now gps_pose_: ("
+                      << pose.x() << ", "
+                      << pose.y() << ", "
+                      << pose.z() << ")" << std::endl;
+        }
 
         double distance = sqrt(pow(pose(1) - prev_pos_(1), 2) +
                                pow(pose(0) - prev_pos_(0), 2));
@@ -353,23 +371,57 @@ public:
         {
             q = tf::createQuaternionMsgFromYaw(NAN);
         }
+
+        const int diff_gps_data = 0;
+        if (diff_gps_data)
+        {
+            const int KNUMBEROFTWOGPSFRAME = 10;
+            for (int i = KNUMBEROFTWOGPSFRAME; i <= KNUMBEROFTWOGPSFRAME; i++)
+            {
+                nav_msgs::Odometry odometry_msg;
+                const Eigen::Vector3d diff_pos = prev_pos_ + (pose - prev_pos_) * (i * 1.00 / KNUMBEROFTWOGPSFRAME);
+                odometry_msg.header = gpsMsg->header;
+
+                const double diff_time = prev_time_ + (gpsMsg->header.stamp.toSec() - prev_time_) * (i * 1.00 / KNUMBEROFTWOGPSFRAME);
+                odometry_msg.header.stamp = ros::Time().fromSec(diff_time);
+
+                odometry_msg.pose.pose.position.x = diff_pos(0);
+                odometry_msg.pose.pose.position.y = diff_pos(1);
+                odometry_msg.pose.pose.position.z = diff_pos(2);
+
+                odometry_msg.pose.pose.orientation.x = q.x;
+                odometry_msg.pose.pose.orientation.y = q.y;
+                odometry_msg.pose.pose.orientation.z = q.z;
+                odometry_msg.pose.pose.orientation.w = q.w;
+
+                odometry_msg.pose.covariance[0] = 0.1;
+                odometry_msg.pose.covariance[7] = 0.1;
+                odometry_msg.pose.covariance[14] = 0.1;
+                gpsQueue.push_back(odometry_msg);
+            }
+        }
+        else
+        {
+            nav_msgs::Odometry odometry_msg;
+            odometry_msg.header = gpsMsg->header;
+
+            odometry_msg.pose.pose.position.x = pose(0);
+            odometry_msg.pose.pose.position.y = pose(1);
+            odometry_msg.pose.pose.position.z = pose(2);
+
+            odometry_msg.pose.pose.orientation.x = q.x;
+            odometry_msg.pose.pose.orientation.y = q.y;
+            odometry_msg.pose.pose.orientation.z = q.z;
+            odometry_msg.pose.pose.orientation.w = q.w;
+
+            odometry_msg.pose.covariance[0] = 0.1;
+            odometry_msg.pose.covariance[7] = 0.1;
+            odometry_msg.pose.covariance[14] = 0.1;
+            gpsQueue.push_back(odometry_msg);
+        }
+
         prev_pos_ = pose;
-
-        nav_msgs::Odometry odometry_msg;
-        odometry_msg.header = gpsMsg->header;
-        odometry_msg.pose.pose.position.x = pose(0);
-        odometry_msg.pose.pose.position.y = pose(1);
-        odometry_msg.pose.pose.position.z = pose(2);
-
-        odometry_msg.pose.pose.orientation.x = q.x;
-        odometry_msg.pose.pose.orientation.y = q.y;
-        odometry_msg.pose.pose.orientation.z = q.z;
-        odometry_msg.pose.pose.orientation.w = q.w;
-
-        odometry_msg.pose.covariance[0]=0.1;
-        odometry_msg.pose.covariance[7]=0.1;
-        odometry_msg.pose.covariance[14]=0.1;
-        gpsQueue.push_back(odometry_msg);
+        prev_time_ = gpsMsg->header.stamp.toSec();
     }
 
     void pointAssociateToMap(PointType const *const pi, PointType *const po)
@@ -1483,83 +1535,115 @@ public:
             // }
         }
     }
-
+    int LowerFind(double time)
+    {
+        int left = 0, right = cloudKeyPosesTime.size() - 1, index = -1;
+        while (left <= right)
+        {
+            int mid = (left + right) >> 1;
+            if (cloudKeyPosesTime[mid] >= time)
+            {
+                right = mid - 1;
+                index = mid;
+            }
+            else
+            {
+                left = mid + 1;
+            }
+        }
+        return index;
+    }
     void addGPSFactor()
     {
+        static int add_gps_factor_func = 0;
+        add_gps_factor_func += 1;
+
         if (gpsQueue.empty())
             return;
-
+        //ROS_INFO("add_gps_factor_func=%d size=%d %lf %lf %lf", add_gps_factor_func,
+        //         gpsQueue.size(), gpsQueue.front().header.stamp.toSec(),
+        //         gpsQueue.back().header.stamp.toSec(), timeLaserInfoCur);
+        //ROS_INFO("cloudKeyPoses3D size=%d ", cloudKeyPoses3D->points.size());
         // wait for system initialized and settles down
         if (cloudKeyPoses3D->points.empty())
             return;
-        else if (pointDistance(cloudKeyPoses3D->front(), cloudKeyPoses3D->back()) < 5.0)
-            return;
+        // else if (pointDistance(cloudKeyPoses3D->front(), cloudKeyPoses3D->back()) < 5.0)
+        //     return;
 
         // pose covariance small, no need to correct
-        //if (poseCovariance(3, 3) < poseCovThreshold && poseCovariance(4, 4) < poseCovThreshold)
+        // if (poseCovariance(3, 3) < poseCovThreshold && poseCovariance(4, 4) < poseCovThreshold)
         //    return;
 
         // last gps position
         static PointType lastGPSPoint;
-        static int gps_factor_count=0;
+        lastGPSPoint.x=0;
+        lastGPSPoint.y=0;
+        lastGPSPoint.z=0;
+        static int gps_factor_count = 0;
+        static int gps_factor_find = 0;
+        static double delta_distance = 0;
         while (!gpsQueue.empty())
         {
-            if (gpsQueue.front().header.stamp.toSec() < timeLaserInfoCur - 0.2)
+            const nav_msgs::Odometry this_gps = gpsQueue.front();
+            const double gps_time = this_gps.header.stamp.toSec();
+            
+            int index = LowerFind(gps_time);
+            if (index == -1)
             {
-                // message too old
-                gpsQueue.pop_front();
-            }
-            else if (gpsQueue.front().header.stamp.toSec() > timeLaserInfoCur + 0.2)
-            {
-                // message too new
+                //continue;
                 break;
             }
-            else
+            gpsQueue.pop_front();
+
+            if (cloudKeyPosesTime[index] - gps_time > 0.2)
             {
-                nav_msgs::Odometry thisGPS = gpsQueue.front();
-                gpsQueue.pop_front();
-
-                // GPS too noisy, skip
-                float noise_x = thisGPS.pose.covariance[0];
-                float noise_y = thisGPS.pose.covariance[7];
-                float noise_z = thisGPS.pose.covariance[14];
-                if (noise_x > gpsCovThreshold || noise_y > gpsCovThreshold)
-                    continue;
-
-                float gps_x = thisGPS.pose.pose.position.x;
-                float gps_y = thisGPS.pose.pose.position.y;
-                float gps_z = thisGPS.pose.pose.position.z;
-                //if (!useGpsElevation)
-                {
-                    gps_z = transformTobeMapped[5];
-                    noise_z = 0.01;
-                }
-
-                // GPS not properly initialized (0,0,0)
-                if (abs(gps_x) < 1e-6 && abs(gps_y) < 1e-6)
-                    continue;
-
-                // Add GPS every a few meters
-                PointType curGPSPoint;
-                curGPSPoint.x = gps_x;
-                curGPSPoint.y = gps_y;
-                curGPSPoint.z = gps_z;
-                if (pointDistance(curGPSPoint, lastGPSPoint) < 2.0)
-                    continue;
-                else
-                    lastGPSPoint = curGPSPoint;
-
-                gtsam::Vector Vector3(3);
-                Vector3 << max(noise_x, 1.0f), max(noise_y, 1.0f), max(noise_z, 1.0f);
-                noiseModel::Diagonal::shared_ptr gps_noise = noiseModel::Diagonal::Variances(Vector3);
-                gtsam::GPSFactor gps_factor(cloudKeyPoses3D->size(), gtsam::Point3(gps_x, gps_y, gps_z), gps_noise);
-                gtSAMgraph.add(gps_factor);
-
-                aLoopIsClosed = true;
-                gps_factor_count+=1;
-                ROS_INFO("gps_factor_count = %d",gps_factor_count);
-                break;
+                continue;
             }
+            gps_factor_find += 1;
+            ROS_INFO("gps_factor_find = %d  add_gps_factor_func=%d", gps_factor_find, add_gps_factor_func);
+
+            // GPS too noisy, skip
+            float noise_x = this_gps.pose.covariance[0];
+            float noise_y = this_gps.pose.covariance[7];
+            float noise_z = this_gps.pose.covariance[14];
+            // if (noise_x > gpsCovThreshold || noise_y > gpsCovThreshold)
+            //     continue;
+
+            float gps_x = this_gps.pose.pose.position.x;
+            float gps_y = this_gps.pose.pose.position.y;
+            float gps_z = this_gps.pose.pose.position.z;
+            // if (!useGpsElevation)
+            {
+                gps_z = cloudKeyPoses3D->points[index].z;
+                noise_z = 0.01;
+            }
+
+            // GPS not properly initialized (0,0,0)
+            if (abs(gps_x) < 1e-6 && abs(gps_y) < 1e-6)
+                continue;
+
+            // Add GPS every a few meters
+            PointType curGPSPoint;
+            curGPSPoint.x = gps_x;
+            curGPSPoint.y = gps_y;
+            curGPSPoint.z = gps_z;
+            delta_distance += pointDistance(curGPSPoint, lastGPSPoint);
+            lastGPSPoint = curGPSPoint;
+            if (delta_distance <= 5)
+            {
+                continue;
+            }
+            delta_distance = 0;
+            gtsam::Vector Vector3(3);
+            Vector3 << max(noise_x, 1.0f), max(noise_y, 1.0f), max(noise_z, 1.0f);
+            noiseModel::Diagonal::shared_ptr gps_noise = noiseModel::Diagonal::Variances(Vector3);
+            gtsam::GPSFactor gps_factor(index+1, gtsam::Point3(gps_x, gps_y, gps_z), gps_noise);
+            gtSAMgraph.add(gps_factor);
+
+            aLoopIsClosed = true;
+            gps_factor_count += 1;
+            ROS_INFO("gps_factor_count = %d", gps_factor_count);
+            //break;
         }
     }
 
@@ -1619,6 +1703,7 @@ public:
         thisPose3D.z = latestEstimate.translation().z();
         thisPose3D.intensity = cloudKeyPoses3D->size(); // this can be used as index
         cloudKeyPoses3D->push_back(thisPose3D);
+        cloudKeyPosesTime.push_back(timeLaserInfoCur);
 
         thisPose6D.x = thisPose3D.x;
         thisPose6D.y = thisPose3D.y;
