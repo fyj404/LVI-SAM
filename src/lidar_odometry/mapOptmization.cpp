@@ -83,8 +83,11 @@ public:
 
     vector<pcl::PointCloud<PointType>::Ptr> cornerCloudKeyFrames;
     vector<pcl::PointCloud<PointType>::Ptr> surfCloudKeyFrames;
+    
     vector<double> cloudKeyPosesTime;
+    
     pcl::PointCloud<PointType>::Ptr cloudKeyPoses3D;
+    pcl::PointCloud<PointType>::Ptr cloudKeyGPSPoses3D;
     pcl::PointCloud<PointTypePose>::Ptr cloudKeyPoses6D;
 
     pcl::PointCloud<PointType>::Ptr laserCloudCornerLast;   // corner feature set from odoOptimization
@@ -102,6 +105,7 @@ public:
     std::vector<PointType> laserCloudOriSurfVec; // surf point holder for parallel computation
     std::vector<PointType> coeffSelSurfVec;
     std::vector<bool> laserCloudOriSurfFlag;
+    std::vector<gtsam::GPSFactor> keyframeGPSfactor;
 
     pcl::PointCloud<PointType>::Ptr laserCloudCornerFromMap;
     pcl::PointCloud<PointType>::Ptr laserCloudSurfFromMap;
@@ -128,8 +132,13 @@ public:
     float transformTobeMapped[6];
 
     std::mutex mtx;
+    std::mutex mtxGpsInfo;
+    std::mutex mtxGraph;
 
+    bool systemInitialized = false;
     bool isDegenerate = false;
+    bool gpsTransfromInit = false;
+
     cv::Mat matP;
 
     int laserCloudCornerLastDSNum = 0;
@@ -140,12 +149,18 @@ public:
 
     nav_msgs::Path globalPath;
 
-    Eigen::Affine3f transPointAssociateToMap;
-
+    GeographicLib::LocalCartesian geo_converter;
+    Eigen::Vector3d originLLA;
+    
     map<int, int> loopIndexContainer; // from new to old
     vector<pair<int, int>> loopIndexQueue;
     vector<gtsam::Pose3> loopPoseQueue;
     vector<gtsam::noiseModel::Diagonal::shared_ptr> loopNoiseQueue;
+
+
+    Eigen::Affine3f incrementalOdometryAffineFront;
+    Eigen::Affine3f transPointAssociateToMap;
+
 
     mapOptimization()
     {
@@ -192,6 +207,7 @@ public:
     {
         cloudKeyPoses3D.reset(new pcl::PointCloud<PointType>());
         cloudKeyPoses6D.reset(new pcl::PointCloud<PointTypePose>());
+        cloudKeyGPSPoses3D.reset(new pcl::PointCloud<PointType>());
 
         kdtreeSurroundingKeyPoses.reset(new pcl::KdTreeFLANN<PointType>());
         kdtreeHistoryKeyPoses.reset(new pcl::KdTreeFLANN<PointType>());
@@ -273,8 +289,9 @@ public:
 
     void gpsHandler(const nav_msgs::Odometry::ConstPtr &gpsMsg)
     {
-        std::lock_guard<std::mutex> lock(mtx);
+        mtxGpsInfo.lock();
         gpsQueue.push_back(*gpsMsg);
+        mtxGpsInfo.unlock();
     }
 
     // WGS84 to UTM conversion function
@@ -932,21 +949,120 @@ public:
         performLoopClosure(match_msg);
     }
 
+    bool syncGPS(std::deque<nav_msgs::Odometry> &gpsBuf,
+                 nav_msgs::Odometry &aligedGps, double timestamp,
+                 double eps_cam) {
+        bool hasGPS = false;
+        while (!gpsQueue.empty()) {
+            mtxGpsInfo.lock();
+            if (gpsQueue.front().header.stamp.toSec() < timestamp - eps_cam) {
+                // message too old
+                gpsQueue.pop_front();
+                mtxGpsInfo.unlock();
+            } else if (gpsQueue.front().header.stamp.toSec() > timestamp + eps_cam) {
+                // message too new
+                mtxGpsInfo.unlock();
+                break;
+            } else {
+                hasGPS = true;
+                aligedGps = gpsQueue.front();
+                gpsQueue.pop_front();
+                mtxGpsInfo.unlock();
+            }
+        }
+
+        if (hasGPS)
+            return true;
+        else
+            return false;
+    }
+
     void updateInitialGuess()
     {
+        incrementalOdometryAffineFront = trans2Affine3f(transformTobeMapped);
         static Eigen::Affine3f lastImuTransformation;
         // system initialization
         if (cloudKeyPoses3D->points.empty())
         {
-            transformTobeMapped[0] = cloudInfo.imuRollInit;
-            transformTobeMapped[1] = cloudInfo.imuPitchInit;
-            transformTobeMapped[2] = cloudInfo.imuYawInit;
+            systemInitialized = false;
+            if (useGPS) {
+                ROS_INFO("GPS use to init pose");
+                /** when you align gnss and lidar timestamp, make sure (1.0/gpsFrequence) is small encougn
+                 *  no need to care about the real gnss frquency. time alignment fail will cause
+                 *  "[ERROR] [1689196991.604771416]: sysyem need to be initialized"
+                 * */
+                nav_msgs::Odometry alignedGPS;
+                if (syncGPS(gpsQueue, alignedGPS, timeLaserInfoCur, 1.0 / 10)) {
+                    /** we store the origin wgs84 coordinate points in covariance[1]-[3] */
+                    originLLA.setIdentity();
+                    originLLA = Eigen::Vector3d(alignedGPS.pose.covariance[1],
+                                                alignedGPS.pose.covariance[2],
+                                                alignedGPS.pose.covariance[3]);
+                    /** set your map origin points */
+                    geo_converter.Reset(originLLA[0], originLLA[1], originLLA[2]);
+                    // WGS84->ENU, must be (0,0,0)
+                    Eigen::Vector3d enu;
+                    geo_converter.Forward(originLLA[0], originLLA[1], originLLA[2], enu[0], enu[1], enu[2]);
 
-            if (!useImuHeadingInitialization)
-                transformTobeMapped[2] = 0;
+                    if (0) {
+                        double roll, pitch, yaw;
+                        tf::Matrix3x3(tf::Quaternion(alignedGPS.pose.pose.orientation.x,
+                                                     alignedGPS.pose.pose.orientation.y,
+                                                     alignedGPS.pose.pose.orientation.z,
+                                                     alignedGPS.pose.pose.orientation.w))
+                                .getRPY(roll, pitch, yaw);
+                        std::cout << "initial gps yaw: " << yaw << std::endl;
+                        std::cout << "GPS Position: " << enu.transpose() << std::endl;
+                        std::cout << "GPS LLA: " << originLLA.transpose() << std::endl;
+                    }
 
-            lastImuTransformation = pcl::getTransformation(0, 0, 0, cloudInfo.imuRollInit, cloudInfo.imuPitchInit, cloudInfo.imuYawInit); // save imu before return;
-            return;
+                    /** add the first factor, we need this origin GPS point for prior map based localization,
+                     * but we need to optimize its value by pose graph if the origin gps RTK status is not fixed.*/
+                    PointType gnssPoint;
+                    gnssPoint.x = enu[0],
+                    gnssPoint.y = enu[1],
+                    gnssPoint.z = enu[2];
+                    float noise_x = alignedGPS.pose.covariance[0];
+                    float noise_y = alignedGPS.pose.covariance[7];
+                    float noise_z = alignedGPS.pose.covariance[14];
+
+                    /** if we get reliable origin point, we adjust the weight of this gps factor to fix the map origin */
+                    //if (!updateOrigin) {
+                    noise_x *= 1e-4;
+                    noise_y *= 1e-4;
+                    noise_z *= 1e-4;
+                    // }
+                    gtsam::Vector Vector3(3);
+                    Vector3 << noise_x, noise_y, noise_z;
+                    noiseModel::Diagonal::shared_ptr gps_noise =
+                            noiseModel::Diagonal::Variances(Vector3);
+                    gtsam::GPSFactor gps_factor(0, gtsam::Point3(gnssPoint.x, gnssPoint.y, gnssPoint.z),
+                                                gps_noise);
+                    keyframeGPSfactor.push_back(gps_factor);
+                    cloudKeyGPSPoses3D->points.push_back(gnssPoint);
+
+                    transformTobeMapped[0] = cloudInfo.imuRollInit;
+                    transformTobeMapped[1] = cloudInfo.imuPitchInit;
+                    transformTobeMapped[2] = cloudInfo.imuYawInit;
+                    if (!useImuHeadingInitialization) transformTobeMapped[2] = 0;
+                    lastImuTransformation = pcl::getTransformation(
+                            0, 0, 0, cloudInfo.imuRollInit, cloudInfo.imuPitchInit,
+                            cloudInfo.imuYawInit);
+                    systemInitialized = true;
+                    ROS_WARN("GPS init success");
+                }
+            }
+            else{
+                transformTobeMapped[0] = cloudInfo.imuRollInit;
+                transformTobeMapped[1] = cloudInfo.imuPitchInit;
+                transformTobeMapped[2] = cloudInfo.imuYawInit;
+
+                if (!useImuHeadingInitialization)transformTobeMapped[2] = 0;
+                lastImuTransformation = pcl::getTransformation(0, 0, 0, cloudInfo.imuRollInit, 
+                cloudInfo.imuPitchInit, cloudInfo.imuYawInit);// save imu before return;
+                return;
+            }
+            
         }
 
         // use VINS odometry estimation for pose guess
@@ -1584,8 +1700,9 @@ public:
         //         gpsQueue.back().header.stamp.toSec(), timeLaserInfoCur);
         //ROS_INFO("cloudKeyPoses3D size=%d ", cloudKeyPoses3D->points.size());
         // wait for system initialized and settles down
-        if (cloudKeyPoses3D->points.empty())
+        if (cloudKeyPoses3D->points.empty() || cloudKeyPoses3D->points.size() == 1)
             return;
+
         // else if (pointDistance(cloudKeyPoses3D->front(), cloudKeyPoses3D->back()) < 5.0)
         //     return;
 
@@ -1601,68 +1718,68 @@ public:
         static int gps_factor_count = 0;
         static int gps_factor_find = 0;
         static double delta_distance = 0;
-        while (!gpsQueue.empty())
+       
+        nav_msgs::Odometry thisGPS;
+        if (syncGPS(gpsQueue, thisGPS, timeLaserInfoCur, 1.0 / 10))
         {
-            const nav_msgs::Odometry this_gps = gpsQueue.front();
-            const double gps_time = this_gps.header.stamp.toSec();
-            
-            int index = LowerFind(gps_time);
-            if (index == -1)
-            {
-                //continue;
-                break;
-            }
-            gpsQueue.pop_front();
+            float noise_x = thisGPS.pose.covariance[0];
+            float noise_y = thisGPS.pose.covariance[7];
+            float noise_z = thisGPS.pose.covariance[14];
+            if (abs(noise_x) > gpsCovThreshold || abs(noise_y) > gpsCovThreshold)
+                return;
+            double gps_x = 0.0, gps_y = 0.0, gps_z = 0.0;
+            Eigen::Vector3d LLA(thisGPS.pose.covariance[1], thisGPS.pose.covariance[2], thisGPS.pose.covariance[3]);
+            geo_converter.Forward(LLA[0], LLA[1], LLA[2], gps_x, gps_y, gps_z);
 
-            if (cloudKeyPosesTime[index] - gps_time > 0.2)
-            {
-                continue;
-            }
-            gps_factor_find += 1;
-            ROS_INFO("gps_factor_find = %d  add_gps_factor_func=%d", gps_factor_find, add_gps_factor_func);
-
-            // GPS too noisy, skip
-            float noise_x = this_gps.pose.covariance[0];
-            float noise_y = this_gps.pose.covariance[7];
-            float noise_z = this_gps.pose.covariance[14];
-            // if (noise_x > gpsCovThreshold || noise_y > gpsCovThreshold)
-            //     continue;
-
-            float gps_x = this_gps.pose.pose.position.x;
-            float gps_y = this_gps.pose.pose.position.y;
-            float gps_z = this_gps.pose.pose.position.z;
-            // if (!useGpsElevation)
-            {
-                gps_z = cloudKeyPoses3D->points[index].z;
+            if (!useGpsElevation) {
+                gps_z = transformTobeMapped[5];
                 noise_z = 0.01;
             }
 
-            // GPS not properly initialized (0,0,0)
-            if (abs(gps_x) < 1e-6 && abs(gps_y) < 1e-6)
-                continue;
+            if (abs(gps_x) < 1e-6 && abs(gps_y) < 1e-6) return;
 
-            // Add GPS every a few meters
             PointType curGPSPoint;
             curGPSPoint.x = gps_x;
             curGPSPoint.y = gps_y;
             curGPSPoint.z = gps_z;
-            delta_distance += pointDistance(curGPSPoint, lastGPSPoint);
-            lastGPSPoint = curGPSPoint;
-            if (delta_distance <= 5)
-            {
-                continue;
-            }
-            delta_distance = 0;
+            if (pointDistance(curGPSPoint, lastGPSPoint) < GPSDISTANCE)
+                return;
+            else
+                lastGPSPoint = curGPSPoint;
+            
             gtsam::Vector Vector3(3);
-            Vector3 << max(noise_x, 1.0f), max(noise_y, 1.0f), max(noise_z, 1.0f);
-            noiseModel::Diagonal::shared_ptr gps_noise = noiseModel::Diagonal::Variances(Vector3);
-            gtsam::GPSFactor gps_factor(index+1, gtsam::Point3(gps_x, gps_y, gps_z), gps_noise);
-            gtSAMgraph.add(gps_factor);
+            Vector3 << noise_x, noise_y, noise_z;
+            // Vector3 << max(noise_x, 1.0f), max(noise_y, 1.0f), max(noise_z, 1.0f);
+            noiseModel::Diagonal::shared_ptr gps_noise =
+                    noiseModel::Diagonal::Variances(Vector3);
+            gtsam::GPSFactor gps_factor(cloudKeyPoses3D->size(),
+                                        gtsam::Point3(gps_x, gps_y, gps_z),
+                                        gps_noise);
+            keyframeGPSfactor.push_back(gps_factor);
+            cloudKeyGPSPoses3D->points.push_back(curGPSPoint);
+
+            if (keyframeGPSfactor.size() < 20) {
+                ROS_INFO("Accumulated gps factor: %d", keyframeGPSfactor.size());
+                return;
+            }
+
+            if (!gpsTransfromInit) {
+                ROS_INFO("Initialize GNSS transform!");
+                mtxGraph.lock();
+                for (int i = 0; i < keyframeGPSfactor.size(); ++i) {
+                    gtsam::GPSFactor gpsFactor = keyframeGPSfactor.at(i);
+                    gtSAMgraph.add(gpsFactor);
+                    //gpsIndexContainer[gpsFactor.key()] = i;
+                }
+                gpsTransfromInit = true;
+                mtxGraph.unlock();
+            } else {
+                mtxGraph.lock();
+                gtSAMgraph.add(gps_factor);
+                mtxGraph.unlock();
+            }
 
             aLoopIsClosed = true;
-            gps_factor_count += 1;
-            ROS_INFO("gps_factor_count = %d", gps_factor_count);
-            //break;
         }
     }
 
@@ -1695,7 +1812,11 @@ public:
         addOdomFactor();
 
         // gps factor
-        addGPSFactor();
+        if(useGPS)
+        {
+            addGPSFactor();
+        }
+        
 
         // loop factor
         addLoopFactor();

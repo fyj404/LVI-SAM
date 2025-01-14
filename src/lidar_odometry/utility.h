@@ -82,7 +82,7 @@ public:
     bool useGpsElevation;
     float gpsCovThreshold;
     float poseCovThreshold;
-
+    int useGPS;
     // Save pcd
     bool savePCD;
     string savePCDDirectory;
@@ -155,6 +155,7 @@ public:
     float globalMapVisualizationSearchRadius;
     float globalMapVisualizationPoseDensity;
     float globalMapVisualizationLeafSize;
+    float GPSDISTANCE;
 
     GPSMODE gps_mode;
     
@@ -168,6 +169,7 @@ public:
         nh.param<std::string>(PROJECT_NAME + "/pointCloudTopic", pointCloudTopic, "points_raw");
         nh.param<std::string>(PROJECT_NAME + "/imuTopic", imuTopic, "imu_correct");
         nh.param<std::string>(PROJECT_NAME + "/odomTopic", odomTopic, "odometry/imu");
+        nh.param<int>(PROJECT_NAME + "/useGPS", useGPS, 0);
         nh.param<std::string>(PROJECT_NAME + "/gpsTopic", gpsTopic, "odometry/gps");
         int mode;
         nh.param<int>(PROJECT_NAME+"/gpsMode",mode,0);
@@ -183,7 +185,9 @@ public:
         nh.param<bool>(PROJECT_NAME + "/useGpsElevation", useGpsElevation, false);
         nh.param<float>(PROJECT_NAME + "/gpsCovThreshold", gpsCovThreshold, 2.0);
         nh.param<float>(PROJECT_NAME + "/poseCovThreshold", poseCovThreshold, 1.0);
+        nh.param<float>("lio_sam_6axis/gpsDistance", GPSDISTANCE, 0.5);
 
+        
         nh.param<bool>(PROJECT_NAME + "/savePCD", savePCD, false);
         nh.param<std::string>(PROJECT_NAME + "/savePCDDirectory", savePCDDirectory, "/tmp/loam/");
 
