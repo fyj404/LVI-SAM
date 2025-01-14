@@ -6,8 +6,8 @@ lvi_sam:
   # Topics
   pointCloudTopic: "velodyne_points"               # Point cloud data
   imuTopic: "handsfree/imu"                         # IMU data
-  gpsTopic: "/ublox/fix"
-  gpsMode: 0
+  gpsTopic: "/gps_odom"
+  gpsMode: 1
 
   # Heading
   useImuHeadingInitialization: false          # if using GPS data, set to "true"

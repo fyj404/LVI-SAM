@@ -18,6 +18,11 @@
 
 #include <proj.h>
 
+#include <tf/transform_datatypes.h>
+#include <GeographicLib/Geocentric.hpp>
+#include <GeographicLib/LocalCartesian.hpp>
+#include <GeographicLib/Geoid.hpp>
+
 using namespace gtsam;
 
 using symbol_shorthand::B; // Bias  (ax,ay,az,gx,gy,gz)
@@ -321,12 +326,26 @@ public:
         }
         Eigen::Vector3d lla(gpsMsg->latitude, gpsMsg->longitude, gpsMsg->altitude);
         if(!init_ENU){
-            ROS_INFO("Init Orgin GPS LLA  %f, %f, %f", msg->latitude, msg->longitude,
-                     msg->altitude);
-            //geo_converter.Reset(lla[0], lla[1], lla[2]);
             init_ENU = true;
+            ROS_INFO("Init Orgin GPS LLA  %f, %f, %f", gpsMsg->latitude, gpsMsg->longitude,
+                     gpsMsg->altitude);
+            //geo_converter.Reset(lla[0], lla[1], lla[2]);
+            nav_msgs::Odometry init_msg;
+            init_msg.header.stamp = gpsMsg->header.stamp;
+            init_msg.header.frame_id = "odom";
+            init_msg.child_frame_id = "gps";
+            init_msg.pose.pose.position.x = lla[0];
+            init_msg.pose.pose.position.y = lla[1];
+            init_msg.pose.pose.position.z = lla[2];
+            init_msg.pose.covariance[0] = gpsMsg->position_covariance[0];
+            init_msg.pose.covariance[7] = gpsMsg->position_covariance[4];
+            init_msg.pose.covariance[14] = gpsMsg->position_covariance[8];
+            //init_msg.pose.pose.orientation = yaw_quat_left;
+            //init_origin_pub.publish(init_msg);
+            return;
+           
         }
-        
+
         std::lock_guard<std::mutex> lock(mtx);
         // gpsQueue.push_back(*gpsMsg);
         double x, y;

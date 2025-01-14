@@ -42,7 +42,11 @@ find_package(OpenCV REQUIRED)
 find_package(Ceres REQUIRED)
 find_package(GTSAM REQUIRED QUIET)
 find_package(Boost REQUIRED COMPONENTS filesystem program_options system timer)
-
+find_package(libxml2 QUIET)
+if (NOT LIBXML2_FOUND)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(Y REQUIRED libxml-2.0)
+endif ()
 set(CMAKE_PREFIX_PATH /usr/local/lib/cmake/proj/ ${CMAKE_PREFIX_PATH})
 find_package(PROJ REQUIRED)
 
@@ -62,7 +66,7 @@ generate_messages(
   nav_msgs
   sensor_msgs
 )
-
+add_subdirectory(./ThirdParty/GeographicLib/)
 ######################
 ### Catkin
 ######################
@@ -79,6 +83,9 @@ include_directories(
     ${GTSAM_INCLUDE_DIR}
     ${OCTOMAP_INCLUDE_DIR}
     ${PROJ_INCLUDE_DIRS}
+    ${Y_INCLUDE_DIRS}
+    ${LIBXML2_INCLUDE_DIRS}
+    ./ThirdParty/GeographicLib/include/
 )
 
 link_directories(
@@ -86,6 +93,8 @@ link_directories(
     ${OpenCV_LIBRARY_DIRS}
     ${GTSAM_LIBRARY_DIRS}
     ${OCTOMAP_LIBRARY_DIR}
+    ${LIBXML2_LIBRARY_DIR}
+    ${Y_LIBRARY_DIRS}
 )
 message(STATUS "Proj Include Dirs: ${PROJ_INCLUDE_DIRS}")
 message(STATUS "Proj Libraries: ${PROJ_LIBRARIES}")
@@ -142,10 +151,14 @@ add_dependencies(${PROJECT_NAME}_mapOptmization ${catkin_EXPORTED_TARGETS} ${PRO
 target_include_directories(${PROJECT_NAME}_mapOptmization PRIVATE ${PROJ_INCLUDE_DIRS})
 target_compile_options(${PROJECT_NAME}_mapOptmization PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(${PROJECT_NAME}_mapOptmization PRIVATE ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} 
-${OpenMP_CXX_FLAGS} gtsam Boost::timer  ${PROJ_LIBRARIES})
+${OpenMP_CXX_FLAGS} gtsam Boost::timer  ${PROJ_LIBRARIES} libGeographic)
 
 
 # Feature Association
 add_executable(${PROJECT_NAME}_mapRegister src/lidar_odometry/mapRegister.cpp)
 add_dependencies(${PROJECT_NAME}_mapRegister ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
 target_link_libraries(${PROJECT_NAME}_mapRegister ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+
+add_executable(${PROJECT_NAME}_gpsOdometry src/lidar_odometry/gpsOdometry.cpp)
+add_dependencies(${PROJECT_NAME}_gpsOdometry ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
+target_link_libraries(${PROJECT_NAME}_gpsOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} libGeographic)
