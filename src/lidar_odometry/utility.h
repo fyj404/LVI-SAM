@@ -172,7 +172,7 @@ public:
         nh.param<int>(PROJECT_NAME + "/useGPS", useGPS, 0);
         nh.param<std::string>(PROJECT_NAME + "/gpsTopic", gpsTopic, "odometry/gps");
         int mode;
-        nh.param<int>(PROJECT_NAME+"/gpsMode",mode,0);
+        nh.param<int>(PROJECT_NAME+"/gpsMode",mode,1);
         if(mode==0){
             gps_mode=GPSMODE::SENSOR_NAV;
         }
@@ -183,7 +183,7 @@ public:
 
         nh.param<bool>(PROJECT_NAME + "/useImuHeadingInitialization", useImuHeadingInitialization, false);
         nh.param<bool>(PROJECT_NAME + "/useGpsElevation", useGpsElevation, false);
-        nh.param<float>(PROJECT_NAME + "/gpsCovThreshold", gpsCovThreshold, 2.0);
+        nh.param<float>(PROJECT_NAME + "/gpsCovThreshold", gpsCovThreshold, 50.0);
         nh.param<float>(PROJECT_NAME + "/poseCovThreshold", poseCovThreshold, 1.0);
         nh.param<float>("lio_sam_6axis/gpsDistance", GPSDISTANCE, 0.5);
 

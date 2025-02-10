@@ -7,10 +7,12 @@ lvi_sam:
   pointCloudTopic: "velodyne_points"               # Point cloud data
   imuTopic: "handsfree/imu"                         # IMU data
   gpsTopic: "/gps_odom"
+  gpsCovThreshold: 50
+  useGpsElevation: false
   gpsMode: 1
-
+  useGPS: 1 
   # Heading
-  useImuHeadingInitialization: false          # if using GPS data, set to "true"
+  useImuHeadingInitialization: true          # if using GPS data, set to "true"
   
   # Export settings
   savePCD: true                              # https://github.com/TixiaoShan/LIO-SAM/issues/3
@@ -67,17 +69,17 @@ lvi_sam:
   mappingProcessInterval: 0.1                  # seconds, regulate mapping frequency
 
   # Surrounding map
-  surroundingkeyframeAddingDistThreshold: 1.0   # meters, regulate keyframe adding threshold
-  surroundingkeyframeAddingAngleThreshold: 0.2  # radians, regulate keyframe adding threshold
+  surroundingkeyframeAddingDistThreshold: 1  # meters, regulate keyframe adding threshold
+  surroundingkeyframeAddingAngleThreshold: 0.1  # radians, regulate keyframe adding threshold
   surroundingKeyframeDensity: 2.0               # meters, downsample surrounding keyframe poses   
   surroundingKeyframeSearchRadius: 50.0         # meters, within n meters scan-to-map optimization (when loop closure disabled)
 
   # Loop closure
   loopClosureEnableFlag: true
-  surroundingKeyframeSize: 25                   # submap size (when loop closure enabled)
-  historyKeyframeSearchRadius: 15.0             # meters, key frame that is within n meters from current pose will be considerd for loop closure
-  historyKeyframeSearchTimeDiff: 30.0           # seconds, key frame that is n seconds older will be considered for loop closure
-  historyKeyframeSearchNum: 25                  # number of hostory key frames will be fused into a submap for loop closure
+  surroundingKeyframeSize: 36                   # submap size (when loop closure enabled)
+  historyKeyframeSearchRadius: 25.0             # meters, key frame that is within n meters from current pose will be considerd for loop closure
+  historyKeyframeSearchTimeDiff: 20.0           # seconds, key frame that is n seconds older will be considered for loop closure
+  historyKeyframeSearchNum: 30                  # number of hostory key frames will be fused into a submap for loop closure
   historyKeyframeFitnessScore: 0.3              # icp threshold, the smaller the better alignment
 
   # Visualization
