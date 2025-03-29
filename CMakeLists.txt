@@ -57,6 +57,7 @@ add_message_files(
   DIRECTORY msg
   FILES
   cloud_info.msg
+  image_depth.msg
 )
 
 generate_messages(
