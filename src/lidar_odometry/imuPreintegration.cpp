@@ -96,7 +96,8 @@ public:
 
         map_to_odom = tf::Transform(tf::createQuaternionFromRPY(0, 0, 0), tf::Vector3(0, 0, 0));
 
-        boost::shared_ptr<gtsam::PreintegrationParams> p = gtsam::PreintegrationParams::MakeSharedU(imuGravity);
+        //boost::shared_ptr<gtsam::PreintegrationParams> p = gtsam::PreintegrationParams::MakeSharedU(imuGravity);
+        auto p = gtsam::PreintegrationParams::MakeSharedU(imuGravity);
         p->accelerometerCovariance = gtsam::Matrix33::Identity(3, 3) * pow(imuAccNoise, 2); // acc white noise in continuous
         p->gyroscopeCovariance = gtsam::Matrix33::Identity(3, 3) * pow(imuGyrNoise, 2);     // gyro white noise in continuous
         p->integrationCovariance = gtsam::Matrix33::Identity(3, 3) * pow(1e-4, 2);          // error committed in integrating position from velocities
@@ -401,7 +402,7 @@ public:
         odometry.pose.covariance[6] = prevBiasOdom.gyroscope().z();
         odometry.pose.covariance[7] = imuGravity;
         pubImuOdometry.publish(odometry);
-
+        pubImuOdometry.publish(odometry);
         // publish imu path
         static nav_msgs::Path imuPath;
         static double last_path_time = -1;

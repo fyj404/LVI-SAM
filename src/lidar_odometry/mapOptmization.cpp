@@ -50,55 +50,6 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(PointXYZIRPYT,
 typedef PointXYZIRPYT PointTypePose;
 
 
-
-class AlignmentFactor : public gtsam::NoiseModelFactor2<gtsam::Pose3, gtsam::Pose3> {
-private:
-    gtsam::Point3 p_gnss_;
-
-public:
-    AlignmentFactor(
-        gtsam::Key poseKey, 
-        gtsam::Key calibKey, 
-        const gtsam::Point3& p_gnss,
-        const gtsam::SharedNoiseModel& model
-    ) : NoiseModelFactor2(model, poseKey, calibKey), p_gnss_(p_gnss) {}
-
-    gtsam::Vector evaluateError(
-        const gtsam::Pose3& pose,
-        const gtsam::Pose3& calibration,
-        boost::optional<gtsam::Matrix&> H1 = nullptr,
-        boost::optional<gtsam::Matrix&> H2 = nullptr
-    ) const override {
-        // calibration: 对齐参数，用Pose3表示(R, t)
-        // 将GNSS坐标转换到LiDAR坐标系
-        gtsam::Point3 p_lidar = calibration.rotation().rotate(p_gnss_) + calibration.translation();
-
-        // 计算误差：转换后的坐标应等于位姿的平移部分
-        gtsam::Vector3 error = pose.translation() - p_lidar;
-
-        // 雅可比计算（如需）
-        if (H1) {
-            gtsam::Matrix36 H_pose;
-            H_pose.setZero();
-            H_pose.block<3,3>(0,0) = gtsam::Matrix3::Identity(); // de/dt (translation)
-            *H1 = H_pose;
-        }
-
-        if (H2) {
-            gtsam::Matrix36 H_calib;
-            H_calib.setZero();
-            // 对 calibration 的导数（旋转和平移）
-            gtsam::Matrix3 H_rot = -calibration.rotation().matrix() * gtsam::skewSymmetric(p_gnss_);
-            H_calib.block<3,3>(0,0) = H_rot; // de/dR
-            H_calib.block<3,3>(0,3) = -gtsam::Matrix3::Identity(); // de/dt
-            *H2 = H_calib;
-        }
-
-        return error;
-    }
-};
-
-
 class mapOptimization : public ParamServer
 {
 
@@ -2127,6 +2078,10 @@ public:
         // publish key poses
         publishCloud(&pubKeyPoses, cloudKeyPoses6D, timeLaserInfoStamp, "odom");
         // Publish surrounding key frames
+        //pcl::PointCloud<PointType>::Ptr mergedCloud(new pcl::PointCloud<PointType>());
+        //*mergedCloud+=*laserCloudSurfFromMapDS;
+        //*mergedCloud+=*laserCloudCornerFromMapDS;
+        //pcl::concatenatePointCloud(*laserCloudSurfFromMapDS, *laserCloudCornerFromMapDS, *mergedCloud);
         publishCloud(&pubRecentKeyFrames, laserCloudSurfFromMapDS, timeLaserInfoStamp, "odom");
         // publish registered key frame
         if (pubRecentKeyFrame.getNumSubscribers() != 0)

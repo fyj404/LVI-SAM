@@ -12,7 +12,7 @@
 #include "camera_models/CameraFactory.h"
 #include "camera_models/CataCamera.h"
 #include "camera_models/PinholeCamera.h"
-
+#include <lvi_sam/image_depth.h>
 #include "parameters.h"
 #include "tic_toc.h"
 
@@ -72,6 +72,7 @@ public:
     ros::Publisher pub_depth_feature;
     ros::Publisher pub_depth_image;
     ros::Publisher pub_depth_cloud;
+    ros::Publisher pub_lidar_image;
 
     tf::TransformListener listener;
     tf::StampedTransform transform;
@@ -85,6 +86,8 @@ public:
         pub_depth_feature = n.advertise<sensor_msgs::PointCloud2>(PROJECT_NAME + "/vins/depth/depth_feature", 5);
         pub_depth_image = n.advertise<sensor_msgs::Image>(PROJECT_NAME + "/vins/depth/depth_image", 5);
         pub_depth_cloud = n.advertise<sensor_msgs::PointCloud2>(PROJECT_NAME + "/vins/depth/depth_cloud", 5);
+        pub_lidar_image = n.advertise<lvi_sam::image_depth>(PROJECT_NAME + "/vins/depth/image_cloud", 15);
+
 
         pointsArray.resize(num_bins);
         for (int i = 0; i < num_bins; ++i)
@@ -293,6 +296,7 @@ public:
         if (pub_depth_image.getNumSubscribers() != 0)
         {
             vector<cv::Point2f> points_2d;
+            vector<cv::Point3f> points_3d;
             vector<float> points_distance;
 
             for (int i = 0; i < (int)depth_cloud_local->size(); ++i)
@@ -305,12 +309,43 @@ public:
                 camera_model->spaceToPlane(p_3d, p_2d);
 
                 points_2d.push_back(cv::Point2f(p_2d(0), p_2d(1)));
+                points_3d.push_back(cv::Point3f(p_3d(0),p_3d(1),p_3d(2)));
                 points_distance.push_back(pointDistance(depth_cloud_local->points[i]));
             }
 
             cv::Mat showImage, circleImage;
             cv::cvtColor(imageCur, showImage, cv::COLOR_GRAY2RGB);
             circleImage = showImage.clone();
+            {
+                lvi_sam::image_depth image_depth_message;
+                cv_bridge::CvImage bridge;
+                bridge.image = showImage;
+                bridge.encoding = "rgb8";
+                sensor_msgs::Image::Ptr imageShowPointer = bridge.toImageMsg();
+                image_depth_message.header.stamp = stamp_cur;
+                image_depth_message.image=*imageShowPointer;
+                image_depth_message.xCur=xCur;
+                image_depth_message.yCur=yCur;
+                image_depth_message.zCur=zCur;
+                image_depth_message.pitchCur=pitchCur;
+                image_depth_message.rollCur=rollCur;
+                image_depth_message.yawCur=yawCur;
+                for(int i=0;i<points_2d.size();i++){
+                    geometry_msgs::Point pt_2d,pt_3d;
+
+                    pt_2d.x=points_2d[i].x;
+                    pt_2d.y=points_2d[i].y;
+
+                    pt_3d.x=points_3d[i].x;
+                    pt_3d.y=points_3d[i].y;
+                    pt_3d.z=points_3d[i].z;
+                    if(points_3d[i].x*points_3d[i].x+points_3d[i].y*points_3d[i].y+points_3d[i].z*points_3d[i].z>100*100)continue;
+                    image_depth_message.image_point3d.push_back(pt_2d);
+                    image_depth_message.lidar_point3d.push_back(pt_3d);
+                }
+                //image_depth_message.
+                pub_lidar_image.publish(image_depth_message);
+            }
             for (int i = 0; i < (int)points_2d.size(); ++i)
             {
                 float r, g, b;

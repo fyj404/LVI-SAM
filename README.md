@@ -2,6 +2,66 @@
 需要额外安装octomap库以及rviz对应的octomap插件
 需要安装Proj库，需要源码安装，apt-get可能会找不到库
 
+如果是docker的话，环境已经安装好了
+
+注意-v这里是docker与外界文件进行共享的路径
+
+lvi-sam-ros:1.1 是 容器的名称
+```
+sudo docker run -it \
+  --device=/dev/dri \
+  --group-add video \
+  --volume=/tmp/.X11-unix:/tmp/.X11-unix \
+  --env="DISPLAY=$DISPLAY" \
+  -v /home/f404/ros_data:/ros_data \
+  lvi-sam-ros:1.1 \
+  /bin/bash
+
+```
+
+
+# Update2
+
+## 目标检测
+目标检测模块 src/onnx_loader/scripts/image_det.py
+所需模型路径 /ros_data/fasterrcnn.onnx
+输入topic /camera/color/image_raw/compressed
+输出topic /detection/image_result
+
+## 语义分割
+
+语义分割模块 src/onnx_loader/scripts/image_seg.py
+所需模型路径 /ros_data/deeplabv3.onnx
+输入topic  /lvi_sam/vins/depth/image_cloud
+输入topic 类型为自定义 包括 图像、点云、该帧数据位姿 是在src/visual_odometry/feature_tracker.h文件进行的发布,将点云投影到图像进行了配对，这一部分的实时性还是可以，能有15HZ。
+```
+pub_lidar_image = n.advertise<lvi_sam::image_depth>(PROJECT_NAME + "/vins/depth/image_cloud", 15);
+```
+输出topic  /rgb_seg_cloud 这个模型有点慢，导致这个topic有点慢 不到1HZ 感觉可以提前跑出来一部分/lvi_sam/vins/depth/image_cloud数据存到bag里然后单独运行语义分割做示意。
+
+
+## gps约束
+
+原始GPS数据是Nav类型，经过gpsOdometry节点 变为Odometry类型，然后在mapOptimization节点加入到GTSAM优化中，如果不想使用gps，可以修改LVI-SAM/config/M2DGR_lidar.yaml文件中的useGPS: 0 。0表示不使用，1表示使用。
+
+使用GPS的数据 stree_02.bag street_02_odometry.tum
+
+## 建图
+如果是只使用激光点云建立无语义的栅格地图（可视化里会根据点云远近进行颜色区分），就在M2DGR.launch 启动 
+```
+<include file="$(find lvi_sam)/launch/include/module_sam_lidar.launch" />
+```
+输入topic为 "lvi-sam/lidar/mapping/cloud_pose_registered"
+输出topic为八叉树类型的 octomap
+
+否则是使用带图像语义分割的，就在M2DGR.launch 启动 
+```
+<include file="$(find lvi_sam)/launch/include/module_sam_seg.launch" />
+```
+输入topic为 "/rgb_seg_cloud"
+输出topic为八叉树类型的 octomap
+
+
 # LVI-SAM-Easyused（[中文README](./README_CN.md)）
 
 This repository contains the modified code of [LVI-SAM](https://github.com/TixiaoShan/LVI-SAM) for easier using, which mainly solves the problem of ambiguous extrinsic configuration of the original LVI-SAM. Using this code, you only need to configure the extrinsic between LiDAR and IMU (**T_imu_lidar**), the extrinsic between Camera and IMU (**T_imu_camera**), and the properties of the IMU itself (**which axis the IMU rotates around counterclockwise to get a positive Euler angle output**), and then you can run LVI-SAM on different devices.

@@ -1,0 +1,10 @@
+Header header
+sensor_msgs/Image image
+geometry_msgs/Point[] image_point3d
+geometry_msgs/Point[] lidar_point3d
+float64 xCur
+float64 yCur
+float64 zCur
+float64 rollCur
+float64 pitchCur
+float64 yawCur

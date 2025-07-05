@@ -10,7 +10,7 @@ lvi_sam:
   gpsCovThreshold: 50
   useGpsElevation: false
   gpsMode: 1
-  useGPS: 1 
+  useGPS: 0 
   # Heading
   useImuHeadingInitialization: true          # if using GPS data, set to "true"
   

@@ -35,6 +35,8 @@ find_package(catkin REQUIRED COMPONENTS
     message_generation
     octomap_ros
 )
+#set(OpenCV_DIR /usr/lib/x86_64-linux-gnu/cmake/opencv4)
+
 
 find_package(OpenMP REQUIRED)
 find_package(PCL REQUIRED)
@@ -57,6 +59,7 @@ add_message_files(
   DIRECTORY msg
   FILES
   cloud_info.msg
+  image_depth.msg
 )
 
 generate_messages(
@@ -98,6 +101,12 @@ link_directories(
 )
 message(STATUS "Proj Include Dirs: ${PROJ_INCLUDE_DIRS}")
 message(STATUS "Proj Libraries: ${PROJ_LIBRARIES}")
+
+message(STATUS "OpenCV Version: ${OpenCV_VERSION}")
+message(STATUS "OpenCV Include Directories: ${OpenCV_INCLUDE_DIRS}")
+message(STATUS "OpenCV Libraries: ${OpenCV_LIBS}")
+message(STATUS "OpenCV Library Directories: ${OpenCV_LIBRARY_DIRS}")
+
 ######################
 ### visual odometry
 ######################
@@ -158,6 +167,12 @@ ${OpenMP_CXX_FLAGS} gtsam Boost::timer  ${PROJ_LIBRARIES} libGeographic)
 add_executable(${PROJECT_NAME}_mapRegister src/lidar_odometry/mapRegister.cpp)
 add_dependencies(${PROJECT_NAME}_mapRegister ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
 target_link_libraries(${PROJECT_NAME}_mapRegister ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+
+
+add_executable(${PROJECT_NAME}_mapRegister_lidar src/lidar_odometry/mapRegister_lidar.cpp)
+add_dependencies(${PROJECT_NAME}_mapRegister_lidar ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
+target_link_libraries(${PROJECT_NAME}_mapRegister_lidar ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+
 
 add_executable(${PROJECT_NAME}_gpsOdometry src/lidar_odometry/gpsOdometry.cpp)
 add_dependencies(${PROJECT_NAME}_gpsOdometry ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
